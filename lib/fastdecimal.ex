@@ -873,6 +873,9 @@ defmodule FastDecimal do
   def to_string(d, :xsd), do: to_string(d, :normal)
 
   @spec to_integer(t()) :: integer()
+  # Zero short-circuit: 0×10^e is 0 for any e. Skips pow10 allocation and
+  # avoids tripping the pow10 cap on `%FastDecimal{coef: 0, exp: -1_000_000}`.
+  def to_integer(%__MODULE__{coef: 0}), do: 0
   def to_integer(%__MODULE__{coef: c, exp: 0}), do: c
   def to_integer(%__MODULE__{coef: c, exp: e}) when e > 0, do: c * pow10(e)
 
@@ -884,6 +887,7 @@ defmodule FastDecimal do
   end
 
   @spec to_float(t()) :: float()
+  def to_float(%__MODULE__{coef: 0}), do: 0.0
   def to_float(%__MODULE__{coef: c, exp: 0}), do: c * 1.0
   def to_float(%__MODULE__{coef: c, exp: e}) when e > 0, do: c * pow10(e) * 1.0
   def to_float(%__MODULE__{coef: c, exp: e}) when e < 0, do: c / pow10(-e)

@@ -31,10 +31,10 @@ grep -rn "Decimal.new(\"-0\")" lib/
 | Non-default precision | Any | 0 | **Real refactor** — thread precision per-call |
 | Any | Any | Any | **Probably don't migrate.** `decimal` is the right fit for code that relies on IEEE 754-2008 conformance features. |
 
-Also check for **decimal v2.4 specific API**:
+Also check for **decimal v2.4 / v3.x specific API**:
 
 ```bash
-grep -rn "Decimal\.\(parse\|cast\)\(.*,.*max_\|Decimal\.to_string\(.*,.*max_" lib/ test/
+grep -rn "Decimal\.\(parse\|cast\|new\)\(.*,.*max_\|Decimal\.to_string\(.*,.*max_" lib/ test/
 ```
 
 If any hit, see section [5](#5-decimalparse2-cast2-to_string3-options--different-protection-model) below — the `:max_digits` and `:max_exponent` options have to be removed (FastDecimal applies similar bounds via global limits instead).
@@ -74,7 +74,7 @@ end
 
 That's the whole migration for typical fintech / ledger / pricing code. The shim adds 5-15% overhead vs calling `FastDecimal.*` directly — usually invisible. If you want to drop the shim later, find-replace `Compat` → `FastDecimal` and verify tests still pass.
 
-## The 5 things that don't translate cleanly
+## The 6 things that don't translate cleanly
 
 These all stem from documented design differences. Each section covers what changes, what to look for, and how to fix it.
 
@@ -197,27 +197,37 @@ IEEE 754 distinguishes `-0` from `+0`. `decimal` preserves this distinction.
 
 ### 5. `Decimal.parse/2`, `cast/2`, `to_string/3` options — different protection model
 
-`decimal` v2.4.0 added `:max_digits` and `:max_exponent` options to `parse/2` and `cast/2`, and `:max_digits` to `to_string/3`. These let *callers* opt into stricter validation:
+`decimal` v2.4.0 added `:max_digits` and `:max_exponent` options to `parse/2` and `cast/2`, and `:max_digits` to `to_string/3`. v3.0.0 then made those limits the default at every public boundary (no longer opt-in): `parse/2` and `cast/2` default to `max_digits: 34`, `max_exponent: 6_144`, and `to_string/3` to `max_digits: 6_178` — matching IEEE 754 decimal128. Pass `:infinity` to opt out. v3.1.0 also added `Decimal.new/2` accepting the same options.
 
 ```elixir
-# decimal v2.4:
-Decimal.parse("1e1000", max_exponent: 100)        # → :error
-Decimal.cast(input, max_digits: 50)               # → :error if too long
+# decimal v2.4 (opt-in):
+Decimal.parse("1e1000", max_exponent: 100)            # → :error
+Decimal.cast(input, max_digits: 50)                   # → :error if too long
+
+# decimal v3.0+ (rejected by default):
+Decimal.parse("1.012345678901234567890123456789012345")  # → :error (35 sig digits > 34)
+Decimal.parse("1e7000")                                  # → :error (exp > 6144)
+Decimal.new("1e7000", max_exponent: :infinity)           # explicit opt-out
 ```
 
-FastDecimal **doesn't accept these options.** Instead, we apply hardcoded global limits as a defense against CVE-2026-32686-class exponent-amplification DoS attacks (see the [Security](README.md#security) section of the README). The protection is equivalent — both libraries refuse to materialize huge values — we just put the guards in different places:
+FastDecimal **doesn't accept any of these options.** Instead, we apply hardcoded global limits as a defense against CVE-2026-32686-class exponent-amplification DoS attacks (see the [Security](README.md#security) section of the README). The protection is equivalent — both libraries refuse to materialize huge values — we just put the guards in different places:
 
-| | `decimal` v2.4 | FastDecimal |
-|---|---|---|
-| Default parse limit | `:infinity` (accepts huge inputs as compact structs) | 65,535 (rejects at parse time) |
-| Where DoS protection lives | Sticky-bit precision-bounded scaling in `add`/`sub` | `pow10/1` cap raises at operation time |
-| Per-call configurability | Yes via `:max_digits`/`:max_exponent` | No (single hardcoded limit) |
+| | `decimal` v2.4 | `decimal` v3.0+ | FastDecimal |
+|---|---|---|---|
+| Default parse limit | `:infinity` (accepts huge inputs as compact structs) | 34 sig digits, exp ±6,144 | 65,535 (exp only; rejects at parse time) |
+| Where DoS protection lives | Sticky-bit precision-bounded scaling in `add`/`sub` | Strict default + `add`/`sub` scaling | `pow10/1` cap raises at operation time |
+| Per-call configurability | Yes via `:max_digits`/`:max_exponent` | Yes via `:max_digits`/`:max_exponent` (and `:infinity` to opt out) | No (single hardcoded limit) |
 
 **Migration impact:**
 - Code using `Decimal.parse/1` or `Decimal.cast/1` (without options) — **works unchanged** under the Compat shim.
-- Code using `Decimal.parse/2` with the new options — will hit `UndefinedFunctionError` on `Compat.parse/2`. To migrate, either remove the options (FastDecimal's default limits already protect against the same attacks) or wrap our parser with your own validator if you need stricter-than-default limits.
+- Code using `Decimal.parse/2` / `cast/2` / `new/2` with the new options — will hit `UndefinedFunctionError` on `Compat.parse/2` etc. To migrate, either remove the options (FastDecimal's default limits already protect against the same attacks) or wrap our parser with your own validator if you need stricter-than-default limits.
+- Code migrating from `decimal` v3.x that relied on `max_digits: :infinity` to accept arbitrary-precision strings: FastDecimal accepts these by default (up to 65,535-digit exponents), so dropping the option is the migration.
 
-**Behavioral difference to watch for:** `Decimal.parse("1e100000")` returns `{:ok, ...}` (decimal v2.4 accepts it, only rejects at materialization time); `FastDecimal.parse("1e100000")` returns `:error` (we reject upfront at 65,535). If your code expects `:ok` for very-large-exp inputs that you intend never to materialize, this is a visible change.
+**Behavioral differences to watch for:**
+- `Decimal.parse("1e100000")` → `:ok` on v2.4 / `:error` on v3.0+ / `:error` on FastDecimal.
+- `Decimal.parse("1.012345678901234567890123456789012345")` (35 significant digits) → `:ok` on v2.4 and FastDecimal / `:error` on v3.0+ (unless `max_digits: :infinity`).
+
+The migration is simpler from v2.x than from v3.x: v3.x callers who explicitly disabled the limits will find FastDecimal already permissive enough by default, but callers who *relied* on the strict default for input validation need their own pre-check before passing strings to FastDecimal.
 
 ### 6. Signal flags and traps — not supported
 

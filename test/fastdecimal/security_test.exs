@@ -139,6 +139,38 @@ defmodule FastDecimal.SecurityTest do
     end
   end
 
+  describe "zero-coefficient short-circuits (mirrors decimal v2.4.1 fix)" do
+    # decimal v2.4.1 fixed an infinite loop in normalize/to_integer when
+    # coef: 0 and exp != 0 (rem(0, 10) == 0 → div(0, 10) == 0 forever).
+    # Our normalize/1 already short-circuits on coef: 0. These tests cover
+    # the conversion-side fix: a zero value with a huge exponent should
+    # return 0 (the obvious answer) rather than tripping the pow10 cap.
+    test "to_integer/1 on zero-coef + huge negative exp returns 0" do
+      assert FastDecimal.to_integer(%FastDecimal{coef: 0, exp: -1_000_000_000}) == 0
+      assert FastDecimal.to_integer(%FastDecimal{coef: 0, exp: -5_000}) == 0
+      assert FastDecimal.to_integer(FastDecimal.new("0.0")) == 0
+      assert FastDecimal.to_integer(FastDecimal.new("0.000")) == 0
+      assert FastDecimal.to_integer(FastDecimal.new("-0.0")) == 0
+    end
+
+    test "to_integer/1 on zero-coef + huge positive exp returns 0" do
+      assert FastDecimal.to_integer(%FastDecimal{coef: 0, exp: 1_000_000_000}) == 0
+    end
+
+    test "to_float/1 on zero-coef + huge exp returns 0.0" do
+      assert FastDecimal.to_float(%FastDecimal{coef: 0, exp: -1_000_000_000}) == 0.0
+      assert FastDecimal.to_float(%FastDecimal{coef: 0, exp: 1_000_000_000}) == 0.0
+    end
+
+    test "normalize/1 on zero-coef + huge exp returns canonical zero" do
+      assert FastDecimal.normalize(%FastDecimal{coef: 0, exp: -1_000_000_000}) ==
+               %FastDecimal{coef: 0, exp: 0}
+
+      assert FastDecimal.normalize(%FastDecimal{coef: 0, exp: 1_000_000_000}) ==
+               %FastDecimal{coef: 0, exp: 0}
+    end
+  end
+
   describe "no regression: existing inputs still parse and operate normally" do
     test "typical fintech values" do
       for s <- ["1.23", "1234567890.123456789", "0.0001", "-42.5", "1e-6", "1e6"] do
