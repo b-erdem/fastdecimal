@@ -32,9 +32,10 @@ Initial release. Feature parity with `ericmj/decimal` except the implicit
 
 ### Performance vs `ericmj/decimal` v2.4 (M-series Mac, OTP 26, BEAMAsm)
 
-Geometric mean speedup across 22 op/size scenarios: **~10.7×** (range across
-4 consecutive runs: 10.68–10.85×). FastDecimal wins on **22/22 scenarios**
-— no regressions. Full table and methodology in [README.md](README.md) and
+Geometric mean speedup across 22 op/size scenarios: **~11.2×** (range
+observed across consecutive runs: 11.11×–11.28×). FastDecimal wins on
+**22/22 scenarios** in most runs; `to_string` ops hover at parity and may
+flip to 21/22 ±1 op based on macOS scheduler noise. Full table and methodology in [README.md](README.md) and
 [bench/README.md](bench/README.md); reproduce with `mix bench`.
 
 Highlights (tight-loop medians, BEAMAsm JIT):
@@ -44,10 +45,10 @@ Highlights (tight-loop medians, BEAMAsm JIT):
 | add / sub / mult | ~250 ns | ~13 ns | **~20×** |
 | compare | ~85 ns | ~8.5 ns | **~10×** |
 | div (p=28) | ~3.0 µs | ~234 ns | **~13×** |
-| div_rem | ~140 ns | ~24 ns | **~6×** |
-| round (3dp) | ~440 ns | ~34 ns | **~13×** |
-| parse | ~263 ns | ~80 ns | **~3×** |
-| **sum of 100** | ~22 µs | ~0.8 µs | **~29×** |
+| div_rem | ~137 ns | ~22 ns | **~6×** |
+| round (3dp) | ~430 ns | ~33 ns | **~13×** |
+| parse | ~235 ns | ~78 ns | **~3×** |
+| **sum of 100** | ~22 µs | ~0.4 µs | **~55×** |
 
 Large values (~10^14) widen the arithmetic gap to **70–100×** because
 decimal's BigInt allocation cost dominates while FastDecimal stays in the

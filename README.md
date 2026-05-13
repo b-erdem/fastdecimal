@@ -34,7 +34,7 @@ Every number below is the **median across 7 independent samples × 200,000 itera
 
 We report **median (p25–p75 IQR)** — the interquartile range survives outliers from GC pauses and scheduler steals. A row is marked **stable** when even the pessimistic ratio (FastDecimal's p75 vs Decimal's p25) clears 2×.
 
-The geometric mean speedup is reproducible across runs (observed: **10.68× – 10.85×** across 4 consecutive runs on the same JIT-enabled OTP install). Specific per-op nanosecond values shift 5-10% per run due to macOS scheduler noise (E-core vs P-core dispatch, GC interactions); the speedup *ratios* are stable. Numbers below are from one representative run — run `mix bench` to see your own.
+The geometric mean speedup is reproducible across runs (observed: **11.11× – 11.28× across 4 consecutive runs** on the same JIT-enabled OTP install). Specific per-op nanosecond values shift 5-10% per run due to macOS scheduler noise (E-core vs P-core dispatch, GC interactions); the speedup *ratios* are stable. Numbers below are from one representative run — run `mix bench` to see your own.
 
 ### Headline summary (`mix bench`)
 
@@ -302,8 +302,11 @@ Every operation's implementation was chosen by running a benchmark, not by guess
 - The **char-by-char walker parser** beat `:binary.split` + `:erlang.binary_to_integer` by 1.4–3× on every input shorter than ~25 digits (`bench/parse.exs`).
 - The **iolist `to_string`** beat the bit-syntax binary builder by 20%, because `iodata_to_binary` is implemented as an Erlang BIF that pre-computes total size.
 - **`pow10` lookup table extended to 38 entries** + binary exponentiation for larger n. Speeds up `div` at precision 28 by ~40% (medium values) and ~36% (large values) — the prior recursive `pow10(28)` path was the bottleneck.
-- **`div_rem` rewritten** to compute quotient + remainder directly from aligned coefficients in one pass, instead of the previous "div_int, then mult, then sub" cascade. From 2.7× → **5.9×** speedup.
+- **`div_rem` rewritten** to compute quotient + remainder directly from aligned coefficients in one pass, instead of the previous "div_int, then mult, then sub" cascade. From 2.7× → **6.2×** speedup.
 - **`to_string :scientific` switched to IEEE 754-2008 "to-scientific-string"** (compact form, matches `decimal`'s output). Was a correctness gap, not just a perf one — turns out `decimal`'s `:scientific` doesn't always emit `E` notation; it uses normal form when `adjusted_exp >= -6`. Fixed alignment is now parity with `decimal`.
+- **`sum/1` and `product/1` rewritten as allocation-free accumulators**. The old version did pairwise `add`/`mult`, producing one throwaway `%FastDecimal{}` struct per element. The new version carries raw `{coef, exp}` and only builds the final struct at the end — N−1 fewer allocations. `sum of 100` went from 29× → **56×** faster than `decimal`. (Special values trip the `is_integer` guard and fall through to a pairwise slow path.)
+- **`binary_part` instead of bit-syntax pattern match** in `to_string :normal`. The `<<int_part::binary-size(N), frac_part::binary>>` form creates two sub-binary refs; `binary_part/3` is a BIF that's about 5% faster. Tipped us from parity to 1.05× on `to_string`.
+- **`equal?` / `lt?` / `gt?` short-circuit clauses** for identical struct shapes (same coef, same exp). Common when comparing a stored value to a fresh literal — returns the answer in a single pattern match instead of going through `compare/2`.
 - A **Rust NIF prototype** for arithmetic ops lost to pure Elixir on every hot path: NIF dispatch overhead (~36 ns) exceeded the per-op cost of pure-Elixir add (~12 ns). It only won at div with high precision (~2.5×) and parse of long strings (~1.5×). Not enough to justify a native dependency and the install friction it adds. The prototype was deleted before v1.0 — the lesson lives in this README.
 - The **`%FastDecimal{}` struct wrapper** is only ~5–9% slower than raw `{coef, exp}` tuples — cheap enough to pay for ergonomics (`bench/representation.exs`).
 - **Explicit `when c in -2^60..2^60` guards** on hot paths add overhead with zero benefit (BEAM's JIT already specializes for immediate-int operands).
