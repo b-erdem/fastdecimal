@@ -70,14 +70,19 @@ defmodule FastDecimal.MixProject do
       maintainers: ["Baris Erdem"],
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
+      files: ~w(lib .formatter.exs mix.exs README.md MIGRATION.md LICENSE CHANGELOG.md)
     ]
   end
 
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "CHANGELOG.md", "bench/README.md"],
+      extras: [
+        "README.md",
+        "MIGRATION.md",
+        "CHANGELOG.md",
+        "bench/README.md"
+      ],
       source_ref: "v#{@version}",
       source_url: @source_url,
       groups_for_modules: [

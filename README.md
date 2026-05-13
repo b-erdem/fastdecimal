@@ -243,28 +243,33 @@ def process(d) when FastDecimal.is_decimal(d), do: ...
 
 ## Migrating from `decimal`
 
-Drop-in via one alias. Existing code is unchanged except for the alias line:
+The 30-second version, for the common case:
 
 ```elixir
-alias FastDecimal.Compat, as: Decimal
+defmodule MyLedger do
+  alias FastDecimal.Compat, as: Decimal   # add this line, rest stays the same
 
-# Everything else stays the same:
-total = Enum.reduce(items, Decimal.new(0), fn item, acc ->
-  Decimal.add(acc, item.amount)
-end)
-
-Decimal.compare(a, b)
-Decimal.to_string(d, :scientific)
-Decimal.round(d, 2)
+  def total(items) do
+    Enum.reduce(items, Decimal.new(0), fn item, acc ->
+      Decimal.add(acc, item.amount)
+    end)
+  end
+end
 ```
 
-`FastDecimal.Compat` mirrors the `Decimal.*` function surface. Inputs are auto-coerced (real `%Decimal{}` structs, `%FastDecimal{}`, strings, integers, floats — all work). The shim adds about 5–15% overhead over the direct `FastDecimal` API; migrate fully off the shim if you need every nanosecond.
+The Compat shim mirrors `decimal`'s public surface and auto-coerces inputs (real `%Decimal{}`, `%FastDecimal{}`, strings, integers, floats). It costs 5-15% vs calling `FastDecimal.*` directly.
 
-### One caveat about the shim
+**Five things that don't translate cleanly** and how to handle each:
 
-Struct literals `%Decimal{sign: 1, coef: 123, exp: -2}` don't translate under alias because structs are module-bound. Replace with `Decimal.new(1, 123, -2)` (3-arg constructor, shimmed).
+- `%Decimal{...}` struct literals — module-bound, need rewriting
+- `Decimal.Context.set/with/get` — no equivalent (this is the real blocker for some codebases)
+- `:sNaN` / `:qNaN` distinction — collapsed to `:nan`
+- `-0` vs `0` — collapsed
+- Signal flags / traps — not supported
 
-### Differences from `decimal`
+**See [`MIGRATION.md`](MIGRATION.md) for the full guide** — decision tree, mechanical steps, real before/after examples, and an FAQ. Most projects migrate in under an hour; some need a wrapper module around precision-policy code; a few should stay on `decimal`.
+
+### Differences from `decimal` (summary)
 
 | | `decimal` | FastDecimal |
 |---|---|---|
