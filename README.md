@@ -34,7 +34,7 @@ Every number below is the **median across 7 independent samples × 200,000 itera
 
 We report **median (p25–p75 IQR)** — the interquartile range survives outliers from GC pauses and scheduler steals. A row is marked **stable** when even the pessimistic ratio (FastDecimal's p75 vs Decimal's p25) clears 2×.
 
-The geometric mean speedup is reproducible across runs to within ~3% (observed range across 6 runs: **9.67× – 10.01×**, all on the same JIT-enabled OTP install). Specific per-op nanosecond values shift 5-10% per run due to macOS scheduler noise (E-core vs P-core dispatch, GC interactions); the speedup *ratios* are stable. Numbers below are from one representative run — run `mix bench` to see your own.
+The geometric mean speedup is reproducible across runs (observed: **10.68× – 10.85×** across 4 consecutive runs on the same JIT-enabled OTP install). Specific per-op nanosecond values shift 5-10% per run due to macOS scheduler noise (E-core vs P-core dispatch, GC interactions); the speedup *ratios* are stable. Numbers below are from one representative run — run `mix bench` to see your own.
 
 ### Headline summary (`mix bench`)
 
@@ -224,7 +224,7 @@ FastDecimal.nan?(d)  ; FastDecimal.inf?(d)     ; FastDecimal.finite?(d)
 
 ```elixir
 FastDecimal.to_string(d)              # "1.23"
-FastDecimal.to_string(d, :scientific) # "1.23E+0"
+FastDecimal.to_string(d, :scientific) # "1.23" — IEEE compact (only emits E for very small/large)
 FastDecimal.to_string(d, :raw)        # "123E-2"
 FastDecimal.to_string(d, :xsd)        # XSD canonical (= :normal for our repr)
 
@@ -296,6 +296,9 @@ Every operation's implementation was chosen by running a benchmark, not by guess
 
 - The **char-by-char walker parser** beat `:binary.split` + `:erlang.binary_to_integer` by 1.4–3× on every input shorter than ~25 digits (`bench/parse.exs`).
 - The **iolist `to_string`** beat the bit-syntax binary builder by 20%, because `iodata_to_binary` is implemented as an Erlang BIF that pre-computes total size.
+- **`pow10` lookup table extended to 38 entries** + binary exponentiation for larger n. Speeds up `div` at precision 28 by ~40% (medium values) and ~36% (large values) — the prior recursive `pow10(28)` path was the bottleneck.
+- **`div_rem` rewritten** to compute quotient + remainder directly from aligned coefficients in one pass, instead of the previous "div_int, then mult, then sub" cascade. From 2.7× → **5.9×** speedup.
+- **`to_string :scientific` switched to IEEE 754-2008 "to-scientific-string"** (compact form, matches `decimal`'s output). Was a correctness gap, not just a perf one — turns out `decimal`'s `:scientific` doesn't always emit `E` notation; it uses normal form when `adjusted_exp >= -6`. Fixed alignment is now parity with `decimal`.
 - A **Rust NIF prototype** for arithmetic ops lost to pure Elixir on every hot path: NIF dispatch overhead (~36 ns) exceeded the per-op cost of pure-Elixir add (~12 ns). It only won at div with high precision (~2.5×) and parse of long strings (~1.5×). Not enough to justify a native dependency and the install friction it adds. The prototype was deleted before v1.0 — the lesson lives in this README.
 - The **`%FastDecimal{}` struct wrapper** is only ~5–9% slower than raw `{coef, exp}` tuples — cheap enough to pay for ergonomics (`bench/representation.exs`).
 - **Explicit `when c in -2^60..2^60` guards** on hot paths add overhead with zero benefit (BEAM's JIT already specializes for immediate-int operands).

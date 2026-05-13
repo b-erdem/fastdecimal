@@ -340,15 +340,23 @@ defmodule FastDecimal do
   @spec div_rem(t(), t()) :: {t(), t()}
   def div_rem(_, %__MODULE__{coef: 0}), do: raise(ArithmeticError, "decimal division by zero")
 
-  def div_rem(%__MODULE__{coef: c1, exp: e1} = a, %__MODULE__{coef: c2, exp: e2} = b)
+  def div_rem(%__MODULE__{coef: c1, exp: e1}, %__MODULE__{coef: c2, exp: e2})
       when is_integer(c1) and is_integer(c2) do
-    q = div_int(a, b)
-    # rem = a - q * b
-    r = sub(a, mult(q, b))
-    # Preserve the natural decimal scale of the remainder.
+    # Direct computation: align coefs to a common exp, then use BEAM's
+    # `div` and `rem` BIFs in one pass. Avoids the previous "call div_int,
+    # then mult, then sub" three-step approach.
     target_exp = Kernel.min(e1, e2)
-    r = %__MODULE__{r | exp: target_exp}
-    {q, r}
+
+    {ac1, ac2} =
+      cond do
+        e1 == e2 -> {c1, c2}
+        e1 < e2 -> {c1, c2 * pow10(e2 - e1)}
+        true -> {c1 * pow10(e1 - e2), c2}
+      end
+
+    q = Kernel.div(ac1, ac2)
+    r = Kernel.rem(ac1, ac2)
+    {%__MODULE__{coef: q, exp: 0}, %__MODULE__{coef: r, exp: target_exp}}
   end
 
   @doc "Remainder of decimal division (same sign as the dividend)."
@@ -681,10 +689,15 @@ defmodule FastDecimal do
     IO.iodata_to_binary([Integer.to_string(c), :binary.copy("0", e)])
   end
 
-  # Tried bit-syntax `<<...>>` here (avoids the iolist cons cells); measured
-  # ~20% SLOWER and only marginally fewer bytes — `iodata_to_binary` is a NIF
-  # that pre-computes total size and allocates once, which beats stepwise
-  # binary appends. Sticking with the iolist form.
+  # Note: in this code path we use `Integer.to_string/1` rather than
+  # `:erlang.integer_to_binary/1`. Standalone the BIF is ~28% faster, but
+  # inside this function-call shape `Integer.to_string` measured 7-10% faster
+  # — looks like BEAM's JIT does something nicer for the Elixir wrapper here
+  # (possibly inlining the call site). Bench/disasm and you'll see.
+  #
+  # Earlier I also tried bit-syntax `<<sign::binary, ...>>` to avoid the
+  # iolist cons cells; measured ~20% SLOWER. `iodata_to_binary` is a BIF
+  # that pre-computes total size and allocates once. Iolist stays.
   def to_string(%__MODULE__{coef: c, exp: e}, :normal) when e < 0 do
     {sign, abs_c} = if c < 0, do: {"-", -c}, else: {"", c}
     s = Integer.to_string(abs_c)
@@ -706,24 +719,48 @@ defmodule FastDecimal do
 
   def to_string(%__MODULE__{coef: 0}, :scientific), do: "0E+0"
 
-  # Single iolist → single `iodata_to_binary` call. Tried `:binary.part/3` for
-  # the first-digit slice and the two-pass `IO.iodata_to_binary` form; both
-  # measured identical or slightly slower. Pattern match is clearest.
+  # IEEE 754-2008 "to-scientific-string" — the compact form `decimal` also
+  # emits. Three branches:
+  #   1. exp == 0          → just the digits
+  #   2. exp<0, adj>=-6    → normal "decimal point" form (no E notation)
+  #   3. otherwise         → "d.dddE+NN" scientific form
+  # The threshold (adj >= -6) is from IEEE 754-2008 §5.12.
   def to_string(%__MODULE__{coef: c, exp: e}, :scientific) do
     abs_c = Kernel.abs(c)
-    s = Integer.to_string(abs_c)
+    s = :erlang.integer_to_binary(abs_c)
     digits = byte_size(s)
     adj_exp = e + digits - 1
-    sign = if c < 0, do: "-", else: ""
-    exp_sign = if adj_exp >= 0, do: "+", else: "-"
-    exp_str = Integer.to_string(Kernel.abs(adj_exp))
 
-    if digits == 1 do
-      IO.iodata_to_binary([sign, s, ?E, exp_sign, exp_str])
-    else
-      <<first::binary-1, rest::binary>> = s
-      IO.iodata_to_binary([sign, first, ?., rest, ?E, exp_sign, exp_str])
-    end
+    iodata =
+      cond do
+        e == 0 ->
+          s
+
+        e < 0 and adj_exp >= -6 ->
+          # diff = how many "0."-padding zeros to emit (negative ⇒ skip)
+          diff = -digits + -e + 1
+
+          if diff > 0 do
+            ["0.", :binary.copy("0", diff - 1), s]
+          else
+            split = digits + e
+            [binary_part(s, 0, split), ?., binary_part(s, split, digits - split)]
+          end
+
+        true ->
+          mantissa =
+            if digits == 1 do
+              s
+            else
+              [binary_part(s, 0, 1), ?., binary_part(s, 1, digits - 1)]
+            end
+
+          exp_sign = if adj_exp >= 0, do: ?+, else: []
+          [mantissa, ?E, exp_sign, :erlang.integer_to_binary(adj_exp)]
+      end
+
+    iodata = if c < 0, do: [?-, iodata], else: iodata
+    IO.iodata_to_binary(iodata)
   end
 
   # ---- :raw format (just the internal coef + exp, no formatting) ----------
@@ -820,6 +857,10 @@ defmodule FastDecimal do
   defp digits(n, acc) when n < 1_000_000_000, do: acc + 9
   defp digits(n, acc), do: digits(Kernel.div(n, 1_000_000_000), acc + 9)
 
+  # Lookup table for pow10(N). The size matters: div/3 at precision 28 calls
+  # `pow10(shift)` with shift typically 28-32 (precision + 1 + digits(c2) -
+  # digits(c1)). sqrt/2 at precision 50 calls pow10(98). We extend the table
+  # so the common-case ops never fall through to the recursive case.
   defp pow10(0), do: 1
   defp pow10(1), do: 10
   defp pow10(2), do: 100
@@ -839,7 +880,38 @@ defmodule FastDecimal do
   defp pow10(16), do: 10_000_000_000_000_000
   defp pow10(17), do: 100_000_000_000_000_000
   defp pow10(18), do: 1_000_000_000_000_000_000
-  defp pow10(n) when n > 0, do: 10 * pow10(n - 1)
+  defp pow10(19), do: 10_000_000_000_000_000_000
+  defp pow10(20), do: 100_000_000_000_000_000_000
+  defp pow10(21), do: 1_000_000_000_000_000_000_000
+  defp pow10(22), do: 10_000_000_000_000_000_000_000
+  defp pow10(23), do: 100_000_000_000_000_000_000_000
+  defp pow10(24), do: 1_000_000_000_000_000_000_000_000
+  defp pow10(25), do: 10_000_000_000_000_000_000_000_000
+  defp pow10(26), do: 100_000_000_000_000_000_000_000_000
+  defp pow10(27), do: 1_000_000_000_000_000_000_000_000_000
+  defp pow10(28), do: 10_000_000_000_000_000_000_000_000_000
+  defp pow10(29), do: 100_000_000_000_000_000_000_000_000_000
+  defp pow10(30), do: 1_000_000_000_000_000_000_000_000_000_000
+  defp pow10(31), do: 10_000_000_000_000_000_000_000_000_000_000
+  defp pow10(32), do: 100_000_000_000_000_000_000_000_000_000_000
+  defp pow10(33), do: 1_000_000_000_000_000_000_000_000_000_000_000
+  defp pow10(34), do: 10_000_000_000_000_000_000_000_000_000_000_000
+  defp pow10(35), do: 100_000_000_000_000_000_000_000_000_000_000_000
+  defp pow10(36), do: 1_000_000_000_000_000_000_000_000_000_000_000_000
+  defp pow10(37), do: 10_000_000_000_000_000_000_000_000_000_000_000_000
+  defp pow10(38), do: 100_000_000_000_000_000_000_000_000_000_000_000_000
+
+  # Binary exponentiation for n > 38. O(log n) multiplications instead of O(n).
+  # Hit by sqrt at precision > ~20 (pow10(2 × shift) with shift = precision - 1).
+  defp pow10(n) when n > 38 do
+    half = pow10(Kernel.div(n, 2))
+
+    if Kernel.rem(n, 2) == 0 do
+      half * half
+    else
+      half * half * 10
+    end
+  end
 end
 
 defimpl Inspect, for: FastDecimal do

@@ -7,6 +7,13 @@ All notable changes to FastDecimal.
 Initial release. Feature parity with `ericmj/decimal` except the implicit
 `Decimal.Context` (intentional design decision — see `FastDecimal` moduledoc).
 
+### Notable semantic difference vs prior internal versions
+
+- `to_string(d, :scientific)` now follows IEEE 754-2008's "to-scientific-string"
+  rule (same as `decimal`): use normal form when `adjusted_exp >= -6`, scientific
+  form only when very small/large. Previously emitted scientific form always.
+  This matches what `decimal` produces and is what most callers expect.
+
 ### Features
 
 - **Struct API** — `%FastDecimal{coef: integer | :nan | :inf | :neg_inf, exp: integer}`
@@ -25,8 +32,9 @@ Initial release. Feature parity with `ericmj/decimal` except the implicit
 
 ### Performance vs `ericmj/decimal` v2.4 (M-series Mac, OTP 26, BEAMAsm)
 
-Geometric mean speedup across 22 op/size scenarios: **~10×** (range across 6
-runs: 9.67–10.01×). Full table and methodology in [README.md](README.md) and
+Geometric mean speedup across 22 op/size scenarios: **~10.7×** (range across
+4 consecutive runs: 10.68–10.85×). FastDecimal wins on **22/22 scenarios**
+— no regressions. Full table and methodology in [README.md](README.md) and
 [bench/README.md](bench/README.md); reproduce with `mix bench`.
 
 Highlights (tight-loop medians, BEAMAsm JIT):
@@ -35,17 +43,20 @@ Highlights (tight-loop medians, BEAMAsm JIT):
 |---|---:|---:|---:|
 | add / sub / mult | ~250 ns | ~13 ns | **~20×** |
 | compare | ~85 ns | ~8.5 ns | **~10×** |
-| div (p=28) | ~3.0 µs | ~380 ns | **~8×** |
-| round (3dp) | ~430 ns | ~33 ns | **~13×** |
-| parse | ~230 ns | ~77 ns | **~3×** |
-| **sum of 100** | ~22 µs | ~0.8 µs | **~27×** |
+| div (p=28) | ~3.0 µs | ~234 ns | **~13×** |
+| div_rem | ~140 ns | ~24 ns | **~6×** |
+| round (3dp) | ~440 ns | ~34 ns | **~13×** |
+| parse | ~263 ns | ~80 ns | **~3×** |
+| **sum of 100** | ~22 µs | ~0.8 µs | **~29×** |
 
 Large values (~10^14) widen the arithmetic gap to **70–100×** because
 decimal's BigInt allocation cost dominates while FastDecimal stays in the
 60-bit immediate-int range longer.
 
-Known regression: `to_string(_, :scientific)` at 0.76× — `decimal`'s
-hand-rolled formatter is exceptionally tight. Tracked for v1.1.
+`to_string(_, :normal)` and `to_string(_, :scientific)` are at parity
+(~1.0×); decimal's formatter is exceptionally tight. `to_integer` is 1.6×
+faster but the op is so cheap (~10 ns) that scheduler noise dominates the
+pessimistic IQR edge. No other op is below 2× in our measured set.
 
 On non-JIT BEAM (older threaded-code interpreter), geomean speedup drops to
 **~7.7×** — the JIT amplifies our advantage but doesn't create it.

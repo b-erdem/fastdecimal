@@ -307,12 +307,25 @@ defmodule FastDecimal.ExtendedTest do
       assert FastDecimal.to_string(~d"0.001") == "0.001"
     end
 
-    test ":scientific" do
-      assert FastDecimal.to_string(~d"1.23", :scientific) == "1.23E+0"
-      assert FastDecimal.to_string(~d"123", :scientific) == "1.23E+2"
-      assert FastDecimal.to_string(~d"0.001", :scientific) == "1E-3"
-      assert FastDecimal.to_string(~d"-42.5", :scientific) == "-4.25E+1"
+    test ":scientific (IEEE 754-2008 to-scientific-string — compact form)" do
+      # The compact rule: use E-notation only when the normal form would have
+      # an adjusted-exponent < -6 (very small) or exp > 0 (very large).
+      # Matches Decimal.to_string/2's `:scientific` output.
+
+      # Normal-form values (no E):
+      assert FastDecimal.to_string(~d"1.23", :scientific) == "1.23"
+      assert FastDecimal.to_string(~d"123", :scientific) == "123"
+      assert FastDecimal.to_string(~d"0.001", :scientific) == "0.001"
+      assert FastDecimal.to_string(~d"-42.5", :scientific) == "-42.5"
       assert FastDecimal.to_string(~d"0", :scientific) == "0E+0"
+
+      # Adjusted exp < -6 — E-notation kicks in:
+      assert FastDecimal.to_string(~d"0.0000001", :scientific) == "1E-7"
+      assert FastDecimal.to_string(~d"-0.0000005", :scientific) == "-5E-7"
+
+      # exp > 0 (positive exponent stored, e.g., from `normalize`) — E-notation:
+      assert FastDecimal.to_string(%FastDecimal{coef: 1, exp: 5}, :scientific) == "1E+5"
+      assert FastDecimal.to_string(%FastDecimal{coef: 123, exp: 2}, :scientific) == "1.23E+4"
     end
 
     test ":raw shows internal representation" do
