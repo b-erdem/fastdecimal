@@ -81,7 +81,8 @@ defmodule FastDecimal.MixProject do
         "README.md",
         "MIGRATION.md",
         "CHANGELOG.md",
-        "bench/README.md"
+        "bench/README.md",
+        "LICENSE"
       ],
       source_ref: "v#{@version}",
       source_url: @source_url,
