@@ -22,6 +22,8 @@ defmodule FastDecimal.Parser do
   # --- Special-value strings (handled before numeric walk) -----------------
   # Literal binary clauses dispatch directly; no impact on the numeric fast path.
 
+  @doc false
+  @spec parse_walk(binary()) :: {:ok, {coef(), integer()}} | :error
   def parse_walk(<<"NaN">>), do: {:ok, {:nan, 0}}
   def parse_walk(<<"nan">>), do: {:ok, {:nan, 0}}
   def parse_walk(<<"Infinity">>), do: {:ok, {:inf, 0}}
@@ -119,6 +121,8 @@ defmodule FastDecimal.Parser do
 
   # --- Strategy B (kept for benchmarking, see bench/parse.exs) -------------
 
+  @doc false
+  @spec parse_split(binary()) :: {:ok, {integer(), integer()}} | :error
   def parse_split(<<"-", rest::binary>>) do
     case parse_split_body(rest) do
       {:ok, {c, e}} when is_integer(c) -> {:ok, {-c, e}}
