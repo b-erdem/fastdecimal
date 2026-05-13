@@ -197,7 +197,7 @@ IEEE 754 distinguishes `-0` from `+0`. `decimal` preserves this distinction.
 
 ### 5. `Decimal.parse/2`, `cast/2`, `to_string/3` options — different protection model
 
-`decimal` v2.4.0 added `:max_digits` and `:max_exponent` options to `parse/2` and `cast/2`, and `:max_digits` to `to_string/3`. v3.0.0 then made those limits the default at every public boundary (no longer opt-in): `parse/2` and `cast/2` default to `max_digits: 34`, `max_exponent: 6_144`, and `to_string/3` to `max_digits: 6_178` — matching IEEE 754 decimal128. Pass `:infinity` to opt out. v3.1.0 also added `Decimal.new/2` accepting the same options.
+`decimal` v2.4.0 added `:max_digits` and `:max_exponent` options to `parse/2` and `cast/2`, and `:max_digits` to `to_string/3`. v3.0.0 then made those limits the default at every public boundary (no longer opt-in): `parse/2` and `cast/2` default to `max_digits: 34`, `max_exponent: 6_144`, and `to_string/3` to `max_digits: 6_178` — matching IEEE 754 decimal128. Pass `:infinity` to opt out. v3.1.0 also added a 2-arg form of `Decimal.new` accepting the same options.
 
 ```elixir
 # decimal v2.4 (opt-in):

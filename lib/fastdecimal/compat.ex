@@ -61,7 +61,7 @@ defmodule FastDecimal.Compat do
     d
   end
 
-  @doc "Soft constructor — returns `{:ok, t} | :error`. Mirrors `Ecto.Type.cast/1`-like input handling."
+  @doc "Soft constructor — returns `{:ok, t} | :error`. Mirrors `c:Ecto.Type.cast/1`-like input handling."
   @spec cast(input()) :: {:ok, FastDecimal.t()} | :error
   defdelegate cast(value), to: FastDecimal
 

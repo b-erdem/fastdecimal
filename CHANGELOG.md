@@ -17,8 +17,8 @@ All notable changes to FastDecimal.
 
 ### Performance
 
-- **Parser 4-byte fast path** in `FastDecimal.Parser.parse_walk/1` (used by
-  `new/1` and `parse/1`). Multi-digit integer and fractional runs now consume
+- **Parser 4-byte fast path** in the internal numeric walk (used by `new/1`
+  and `parse/1`). Multi-digit integer and fractional runs now consume
   4 bytes per recursive call instead of 1. Bench impact:
   - `parse "1234.56789"` (medium): **123 ns → 65 ns** (1.9× faster), bumping
     the speedup over `decimal` from 1.94× to 3.7× (now stable at IQR edges).
@@ -31,7 +31,7 @@ All notable changes to FastDecimal.
 - Added `@spec` coverage to every public function in `FastDecimal.Compat`
   (the drop-in `alias FastDecimal.Compat, as: Decimal` migration shim).
   Improves Dialyzer / IDE / tooling support for migrators.
-- Marked `FastDecimal.Parser.parse_walk/1` and `parse_split/1` as
+- Marked the internal parser's `parse_walk` and `parse_split` heads as
   `@doc false` — they're `def` (not `defp`) only because `bench/parse.exs`
   and `test/fastdecimal/parser_test.exs` reach into them for the strategy
   shootout. The doc tag makes the intent explicit.
@@ -47,8 +47,8 @@ All notable changes to FastDecimal.
 
 - MIGRATION.md section 5 now covers both `decimal` v2.4 (opt-in `:max_digits`/
   `:max_exponent`) and v3.0+ (IEEE 754 decimal128 defaults) migration paths.
-- Updated decision-tree grep to catch `Decimal.new/2` with opts (added in
-  `decimal` v3.1.0).
+- Updated decision-tree grep to catch the 2-arg form of `Decimal.new` with
+  opts (added in `decimal` v3.1.0).
 
 ### Infrastructure
 
