@@ -1,6 +1,7 @@
 # FastDecimal
 
 [![Hex.pm](https://img.shields.io/hexpm/v/fastdecimal.svg)](https://hex.pm/packages/fastdecimal)
+[![CI](https://github.com/b-erdem/fastdecimal/actions/workflows/ci.yml/badge.svg)](https://github.com/b-erdem/fastdecimal/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Fast arbitrary-precision decimal arithmetic for Elixir.

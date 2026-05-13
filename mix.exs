@@ -16,7 +16,11 @@ defmodule FastDecimal.MixProject do
       description: description(),
       package: package(),
       source_url: @source_url,
-      docs: docs()
+      docs: docs(),
+      dialyzer: [
+        plt_local_path: "priv/plts/local.plt",
+        plt_core_path: "priv/plts/core.plt"
+      ]
     ]
   end
 
@@ -33,7 +37,8 @@ defmodule FastDecimal.MixProject do
       {:benchee, "~> 1.3", only: [:dev, :test]},
       {:benchee_html, "~> 1.0", only: [:dev, :test]},
       {:stream_data, "~> 1.0", only: :test},
-      {:ex_doc, "~> 0.30", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.30", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 

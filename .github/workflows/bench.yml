@@ -1,0 +1,51 @@
+name: Bench
+
+# Runs `mix bench` (the summary suite) on PRs touching lib/, bench/, or
+# mix.exs. Acts as a SMOKE TEST that the bench scripts compile and execute —
+# NOT a regression gate. GitHub Actions runners are shared VMs with noisy
+# CPU performance (±20-30% on the ns-scale ops we measure), so the absolute
+# numbers here are not comparable to the README's local-machine baseline.
+#
+# For real regression testing, run `mix bench` on a stable machine (your
+# laptop with battery → wall-power and no other workloads running).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'bench/**'
+      - 'mix.exs'
+      - 'mix.lock'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: mix bench (smoke test)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28'
+          elixir-version: '1.18'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-bench-${{ hashFiles('**/mix.lock') }}
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+
+      # Captures stdout so the summary appears in the workflow log.
+      # Exit code != 0 fails the job, so this catches bench-script breakage.
+      - run: mix bench

@@ -421,10 +421,12 @@ defmodule FastDecimal do
     normalize(%__MODULE__{coef: root, exp: Kernel.div(e, 2) - shift})
   end
 
-  defp isqrt(0), do: 0
+  # `sqrt/2` filters coef: 0 and coef: <0 above, so isqrt is only ever called
+  # with `pos_integer()` (specifically `c * pow10(2 * shift) >= 1`). The
+  # `isqrt(1)` base case handles the smallest possible input.
   defp isqrt(1), do: 1
 
-  defp isqrt(n) when n > 0 do
+  defp isqrt(n) when n > 1 do
     # Initial guess: 10^ceil(digits/2). Good enough that Newton-Raphson
     # converges in a handful of iterations for any input size.
     guess = pow10(Kernel.div(digits(n) + 1, 2))

@@ -23,6 +23,9 @@ erl_crash.dump
 fastdecimal-*.tar
 fast_decimal-*.tar
 
+# Dialyzer PLT files (generated, cached separately on CI).
+/priv/plts/
+
 # Temporary files.
 /tmp/
 
