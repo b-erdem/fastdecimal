@@ -4,6 +4,17 @@ All notable changes to FastDecimal.
 
 ## Unreleased
 
+### API
+
+- **Added `FastDecimal.from_float/1`** to close a drop-in compatibility gap
+  with `decimal`. Surveyed 10 production Elixir libraries (ash, ecto, kipcole9/money,
+  ex_cldr_numbers, teslamate, plausible, etc.) and `Decimal.from_float/1` is
+  the #3 most-called function in real-world Elixir code (8.3% of all
+  `Decimal.*` calls, used by 7/10 surveyed repos). Previously direct
+  `FastDecimal.from_float/1` raised `UndefinedFunctionError`; the
+  `Compat` shim already provided it via `cast/1`. Now both routes work
+  identically. Mirrors decimal's `from_float/1` signature.
+
 ### Performance
 
 - **Parser 4-byte fast path** in `FastDecimal.Parser.parse_walk/1` (used by

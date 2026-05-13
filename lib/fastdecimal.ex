@@ -156,6 +156,29 @@ defmodule FastDecimal do
   @spec from_integer(integer()) :: t()
   def from_integer(int) when is_integer(int), do: %__MODULE__{coef: int, exp: 0}
 
+  @doc """
+  Convert an Elixir float to a FastDecimal via `Float.to_string/1`. The result
+  is the decimal value that `Float.to_string/1` would print for the float —
+  not the exact rational represented by the IEEE 754 bits.
+
+      iex> FastDecimal.from_float(1.5)
+      %FastDecimal{coef: 15, exp: -1}
+
+      iex> FastDecimal.from_float(0.1)
+      %FastDecimal{coef: 1, exp: -1}
+
+  Mirrors `Decimal.from_float/1` for drop-in compatibility. For literal-float
+  inputs in code, prefer the `~d` sigil — it parses at compile time with no
+  runtime cost.
+  """
+  @spec from_float(float()) :: t()
+  def from_float(float) when is_float(float) do
+    case parse(Float.to_string(float)) do
+      {:ok, d} -> d
+      :error -> raise ArgumentError, "could not convert #{inspect(float)} to a FastDecimal"
+    end
+  end
+
   @spec parse(String.t()) :: {:ok, t()} | :error
   def parse(str) when is_binary(str) do
     case Parser.parse(str) do
