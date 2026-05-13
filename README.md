@@ -106,7 +106,7 @@ Production-style code patterns. Speedups vary 10-25% across runs (the workload c
 
 ## Reproduce
 
-The whole suite is in [`bench/`](bench/) and runs from `mix`. No Docker, no setup beyond `mix deps.get`.
+The whole suite is in [`bench/`](https://github.com/b-erdem/fastdecimal/tree/main/bench) and runs from `mix`. No Docker, no setup beyond `mix deps.get`. See the [Benchmark suite](benchmarks.html) page for methodology and per-file detail.
 
 ```bash
 mix deps.get

@@ -78,11 +78,11 @@ defmodule FastDecimal.MixProject do
     [
       main: "readme",
       extras: [
-        "README.md",
-        "MIGRATION.md",
-        "CHANGELOG.md",
-        "bench/README.md",
-        "LICENSE"
+        "README.md": [filename: "readme", title: "Overview"],
+        "MIGRATION.md": [filename: "migration", title: "Migrating from decimal"],
+        "CHANGELOG.md": [filename: "changelog", title: "Changelog"],
+        "bench/README.md": [filename: "benchmarks", title: "Benchmark suite"],
+        "LICENSE": [filename: "license", title: "License"]
       ],
       source_ref: "v#{@version}",
       source_url: @source_url,
