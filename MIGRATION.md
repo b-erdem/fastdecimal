@@ -31,6 +31,14 @@ grep -rn "Decimal.new(\"-0\")" lib/
 | Non-default precision | Any | 0 | **Real refactor** — thread precision per-call |
 | Any | Any | Any | **Probably don't migrate.** `decimal` is the right fit for code that relies on IEEE 754-2008 conformance features. |
 
+Also check for **decimal v2.4 specific API**:
+
+```bash
+grep -rn "Decimal\.\(parse\|cast\)\(.*,.*max_\|Decimal\.to_string\(.*,.*max_" lib/ test/
+```
+
+If any hit, see section [5](#5-decimalparse2-cast2-to_string3-options--different-protection-model) below — the `:max_digits` and `:max_exponent` options have to be removed (FastDecimal applies similar bounds via global limits instead).
+
 The next sections cover each case in detail.
 
 ## The 30-second migration (90% of codebases)
@@ -187,7 +195,31 @@ IEEE 754 distinguishes `-0` from `+0`. `decimal` preserves this distinction.
 
 **What to do:** grep for `"-0"` in your code. Almost no production code distinguishes -0 from 0; the cases are usually in scientific/IEEE-conformance contexts.
 
-### 5. Signal flags and traps — not supported
+### 5. `Decimal.parse/2`, `cast/2`, `to_string/3` options — different protection model
+
+`decimal` v2.4.0 added `:max_digits` and `:max_exponent` options to `parse/2` and `cast/2`, and `:max_digits` to `to_string/3`. These let *callers* opt into stricter validation:
+
+```elixir
+# decimal v2.4:
+Decimal.parse("1e1000", max_exponent: 100)        # → :error
+Decimal.cast(input, max_digits: 50)               # → :error if too long
+```
+
+FastDecimal **doesn't accept these options.** Instead, we apply hardcoded global limits as a defense against CVE-2026-32686-class exponent-amplification DoS attacks (see the [Security](README.md#security) section of the README). The protection is equivalent — both libraries refuse to materialize huge values — we just put the guards in different places:
+
+| | `decimal` v2.4 | FastDecimal |
+|---|---|---|
+| Default parse limit | `:infinity` (accepts huge inputs as compact structs) | 65,535 (rejects at parse time) |
+| Where DoS protection lives | Sticky-bit precision-bounded scaling in `add`/`sub` | `pow10/1` cap raises at operation time |
+| Per-call configurability | Yes via `:max_digits`/`:max_exponent` | No (single hardcoded limit) |
+
+**Migration impact:**
+- Code using `Decimal.parse/1` or `Decimal.cast/1` (without options) — **works unchanged** under the Compat shim.
+- Code using `Decimal.parse/2` with the new options — will hit `UndefinedFunctionError` on `Compat.parse/2`. To migrate, either remove the options (FastDecimal's default limits already protect against the same attacks) or wrap our parser with your own validator if you need stricter-than-default limits.
+
+**Behavioral difference to watch for:** `Decimal.parse("1e100000")` returns `{:ok, ...}` (decimal v2.4 accepts it, only rejects at materialization time); `FastDecimal.parse("1e100000")` returns `:error` (we reject upfront at 65,535). If your code expects `:ok` for very-large-exp inputs that you intend never to materialize, this is a visible change.
+
+### 6. Signal flags and traps — not supported
 
 `Decimal.Context` carries `:flags` (set after operations that triggered conditions like rounding, overflow, inexact, etc.) and `:traps` (which conditions raise vs just set the flag). This is IEEE 754-2008's conformance machinery.
 

@@ -290,6 +290,7 @@ The Compat shim mirrors `decimal`'s public surface and auto-coerces inputs (real
 | Negative zero | `-0` distinguishable from `0` | Collapsed to `0` |
 | Arithmetic semantics | Bounded by context precision | **Exact** — chain `add`/`mult` without rounding |
 | `compare/2` with NaN | Raises | Returns `:nan` |
+| DoS protection (CVE-2026-32686) | Sticky-bit precision-bounded scaling, per-call `:max_digits`/`:max_exponent` opts | Hardcoded global limits (parser caps at exp ±65,535; `pow10` caps internally at n=100,000; `to_string :normal` caps output at 1 MB). No per-call options. |
 
 ## Ecto integration
 
