@@ -2,6 +2,50 @@
 
 All notable changes to FastDecimal.
 
+## 1.0.1 — 2026-05-13
+
+### Performance
+
+- **Parser 4-byte fast path** in `FastDecimal.Parser.parse_walk/1` (used by
+  `new/1` and `parse/1`). Multi-digit integer and fractional runs now consume
+  4 bytes per recursive call instead of 1. Bench impact:
+  - `parse "1234.56789"` (medium): **123 ns → 65 ns** (1.9× faster), bumping
+    the speedup over `decimal` from 1.94× to 3.7× (now stable at IQR edges).
+  - `parse "1.23"` (small): unchanged within bench noise.
+  - Longer numeric strings benefit proportionally — the win scales with
+    significant-digit count.
+
+### Internal hygiene
+
+- Added `@spec` coverage to every public function in `FastDecimal.Compat`
+  (the drop-in `alias FastDecimal.Compat, as: Decimal` migration shim).
+  Improves Dialyzer / IDE / tooling support for migrators.
+- Marked `FastDecimal.Parser.parse_walk/1` and `parse_split/1` as
+  `@doc false` — they're `def` (not `defp`) only because `bench/parse.exs`
+  and `test/fastdecimal/parser_test.exs` reach into them for the strategy
+  shootout. The doc tag makes the intent explicit.
+- Removed a dead `isqrt(0)` clause in `sqrt/2`. Caller already filters
+  `coef: 0` directly, so the clause was unreachable. Dialyzer-clean.
+- Added zero-coefficient short-circuits to `to_integer/1` and `to_float/1`.
+  `to_integer(%FastDecimal{coef: 0, exp: -1_000_000_000})` now returns `0`
+  instead of tripping the pow10 cap. (Mirrors the decimal v2.4.1 fix
+  philosophy — `0 × 10^anything` is always `0`, so don't bother
+  materializing the alignment factor.)
+
+### Documentation
+
+- MIGRATION.md section 5 now covers both `decimal` v2.4 (opt-in `:max_digits`/
+  `:max_exponent`) and v3.0+ (IEEE 754 decimal128 defaults) migration paths.
+- Updated decision-tree grep to catch `Decimal.new/2` with opts (added in
+  `decimal` v3.1.0).
+
+### Infrastructure
+
+- GitHub Actions CI: matrix test across Elixir 1.15/OTP 26 (minimum),
+  1.17/OTP 27, 1.18/OTP 28 (latest); `mix format --check-formatted` and
+  Dialyzer jobs; PR-only `mix bench` smoke test that catches bench-script
+  rot but explicitly does not gate on Actions-runner timing noise.
+
 ## 1.0.0 — 2026-05-13
 
 Initial release. Feature parity with `ericmj/decimal` except the implicit

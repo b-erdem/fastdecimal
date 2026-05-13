@@ -47,6 +47,21 @@ defmodule FastDecimal.Parser do
   def parse_walk(<<"+", rest::binary>>), do: parse_int(rest, 0, 0, false)
   def parse_walk(bin) when is_binary(bin), do: parse_int(bin, 0, 0, false)
 
+  # 4-byte fast path. For typical multi-digit integer parts ("1234", "1234567",
+  # etc.) this cuts loop iterations 4×. The 8 range-checks compile to a tight
+  # guard block; on multi-digit inputs the dispatch savings dominate. Falls
+  # through to the single-byte clause for the trailing 0-3 bytes.
+  defp parse_int(<<a, b, c, d, rest::binary>>, acc, _digits, _seen?)
+       when a >= ?0 and a <= ?9 and b >= ?0 and b <= ?9 and
+              c >= ?0 and c <= ?9 and d >= ?0 and d <= ?9 do
+    parse_int(
+      rest,
+      acc * 10_000 + (a - ?0) * 1000 + (b - ?0) * 100 + (c - ?0) * 10 + (d - ?0),
+      0,
+      true
+    )
+  end
+
   defp parse_int(<<d, rest::binary>>, acc, _digits, _seen?) when d >= ?0 and d <= ?9 do
     parse_int(rest, acc * 10 + (d - ?0), 0, true)
   end
@@ -64,6 +79,19 @@ defmodule FastDecimal.Parser do
 
   defp parse_int(<<>>, acc, _digits, true), do: {:ok, {acc, 0}}
   defp parse_int(_, _acc, _digits, _seen?), do: :error
+
+  # Same 4-byte fast path for the fractional walk.
+  defp parse_frac(<<a, b, c, d, rest::binary>>, acc, frac_digits, _seen_int?, _seen_frac?)
+       when a >= ?0 and a <= ?9 and b >= ?0 and b <= ?9 and
+              c >= ?0 and c <= ?9 and d >= ?0 and d <= ?9 do
+    parse_frac(
+      rest,
+      acc * 10_000 + (a - ?0) * 1000 + (b - ?0) * 100 + (c - ?0) * 10 + (d - ?0),
+      frac_digits + 4,
+      true,
+      true
+    )
+  end
 
   defp parse_frac(<<d, rest::binary>>, acc, frac_digits, _seen_int?, _seen_frac?)
        when d >= ?0 and d <= ?9 do
