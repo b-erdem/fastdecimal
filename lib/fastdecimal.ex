@@ -58,6 +58,25 @@ defmodule FastDecimal do
   @type t :: %__MODULE__{coef: coef(), exp: integer()}
   @type rounding_mode :: :half_even | :half_up | :half_down | :down | :up | :floor | :ceiling
 
+  # Security: exponent-amplification DoS bound. CVE-2026-32686 (in `decimal`)
+  # showed that compact inputs like `1e1000000000` could force multi-second
+  # expansions or OOM at materialization time (to_string, add-with-huge-gap,
+  # etc). Decimal v2.4.0 mitigated by sticky-bit precision-bounded scaling;
+  # we cap `pow10/1` at @max_safe_pow10 instead, which catches the same
+  # attack vector at a single chokepoint. 100_000 keeps every legitimate
+  # use case in the fast path (fintech tops out around exp ±30, IEEE 754
+  # decimal128 tops at ±6144) while killing the runaway path.
+  @max_safe_pow10 100_000
+
+  # Note: the parser has its own `@max_parse_exponent` constant (matching
+  # this module's intent) — it lives there so it can early-exit during
+  # digit accumulation. Defense in depth: even if parsing slipped a huge
+  # value through, the `pow10` cap above would still catch downstream ops.
+
+  # to_string output cap. Refuse to materialize binaries larger than this.
+  # 1 MB is way above any reasonable printed-decimal size.
+  @max_to_string_bytes 1_048_576
+
   # We can't use `%__MODULE__{}` in module attributes (struct not yet defined
   # at that point). Use the raw map form — it's identical at runtime and
   # pattern-matches as a FastDecimal struct.
@@ -741,11 +760,20 @@ defmodule FastDecimal do
   def to_string(%__MODULE__{coef: 0, exp: e}, :normal) when e >= 0, do: "0"
 
   def to_string(%__MODULE__{coef: 0, exp: e}, :normal) when e < 0,
-    do: "0." <> :binary.copy("0", -e)
+    do: "0." <> safe_zeros(-e)
 
   def to_string(%__MODULE__{coef: c, exp: 0}, :normal), do: Integer.to_string(c)
 
   def to_string(%__MODULE__{coef: c, exp: e}, :normal) when e > 0 do
+    # SECURITY: refuse to materialize >@max_to_string_bytes bytes (CVE-2026-32686
+    # class). Caller can use :scientific or :raw format if they need to see the
+    # representation of a very-large-exp value.
+    digits_count = digits(Kernel.abs(c))
+
+    if digits_count + e > @max_to_string_bytes do
+      raise_to_string_too_big(digits_count + e)
+    end
+
     IO.iodata_to_binary([Integer.to_string(c), :binary.copy("0", e)])
   end
 
@@ -778,7 +806,8 @@ defmodule FastDecimal do
         ])
 
       true ->
-        IO.iodata_to_binary([sign, "0.", :binary.copy("0", shift - digits), s])
+        # SECURITY: cap leading-zero pad. See `safe_zeros/1`.
+        IO.iodata_to_binary([sign, "0.", safe_zeros(shift - digits), s])
     end
   end
 
@@ -911,6 +940,21 @@ defmodule FastDecimal do
     end
   end
 
+  # SECURITY: bounded zero-padding for to_string. CVE-2026-32686 class
+  # vector — a value like `1e1000000000` parses to coef=1, exp=10^9, and
+  # to_string normal-form output would `:binary.copy("0", 10^9)`, allocating
+  # 1 GB. Cap at @max_to_string_bytes.
+  defp safe_zeros(n) when n > @max_to_string_bytes, do: raise_to_string_too_big(n)
+  defp safe_zeros(n), do: :binary.copy("0", n)
+
+  defp raise_to_string_too_big(size) do
+    raise ArgumentError,
+          "to_string(_, :normal) would emit a #{size}-byte string " <>
+            "(~#{Kernel.div(size, 1_048_576)} MB). Use `:scientific` or `:raw` format " <>
+            "for very-large-exp values, or sanitize input upstream — this is the " <>
+            "CVE-2026-32686-class exponent-amplification DoS vector."
+  end
+
   defp digits(0), do: 1
   defp digits(n) when n > 0, do: digits(n, 0)
   defp digits(n, acc) when n < 10, do: acc + 1
@@ -967,6 +1011,19 @@ defmodule FastDecimal do
   defp pow10(36), do: 1_000_000_000_000_000_000_000_000_000_000_000_000
   defp pow10(37), do: 10_000_000_000_000_000_000_000_000_000_000_000_000
   defp pow10(38), do: 100_000_000_000_000_000_000_000_000_000_000_000_000
+
+  # SECURITY: refuse pow10 with absurdly large `n`. Catches CVE-2026-32686-
+  # class inputs (`1e1000000` etc) at the chokepoint they ultimately route
+  # through — every operation that "materializes" a large-exp value calls
+  # pow10(huge_n). Single guard, single point of defense.
+  defp pow10(n) when n > @max_safe_pow10 do
+    raise ArgumentError,
+          "pow10(#{n}) would materialize a #{n}-digit bignum (~#{Kernel.div(n, 1024)} KB). " <>
+            "This is far beyond any practical use and is likely a denial-of-service " <>
+            "attempt via exponent amplification (CVE-2026-32686 in `decimal`). " <>
+            "FastDecimal caps pow10 at #{@max_safe_pow10}. Sanitize inputs before " <>
+            "passing them to arithmetic / to_string."
+  end
 
   # Binary exponentiation for n > 38. O(log n) multiplications instead of O(n).
   # Hit by sqrt at precision > ~20 (pow10(2 × shift) with shift = precision - 1).

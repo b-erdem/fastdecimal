@@ -7,6 +7,24 @@ All notable changes to FastDecimal.
 Initial release. Feature parity with `ericmj/decimal` except the implicit
 `Decimal.Context` (intentional design decision — see `FastDecimal` moduledoc).
 
+### Security
+
+- **Not vulnerable to CVE-2026-32686** (exponent-amplification DoS that
+  affected `decimal` < 2.4.0). FastDecimal mitigates with three layers:
+  - **Parser layer** ([`FastDecimal.Parser`](lib/fastdecimal/parser.ex)):
+    explicit exponents in scientific notation are capped at ±65,535. Inputs
+    like `"1e1000000000"` from untrusted sources return `:error` rather
+    than landing as a `%FastDecimal{}`.
+  - **`pow10/1` cap** (defense in depth): any internal `pow10` call with
+    `n > 100_000` raises `ArgumentError`. Catches the DoS at every
+    operation that would materialize a large-exponent value (add/sub with
+    huge gap, compare across huge gap, etc.) — even when the value was
+    constructed directly via `new/2` bypassing the parser.
+  - **`to_string :normal` cap**: output >1 MB raises. `:scientific` and
+    `:raw` formats remain available for legitimate extreme-exp values.
+- See `test/fastdecimal/security_test.exs` for regression tests covering
+  each layer.
+
 ### Notable semantic difference vs prior internal versions
 
 - `to_string(d, :scientific)` now follows IEEE 754-2008's "to-scientific-string"

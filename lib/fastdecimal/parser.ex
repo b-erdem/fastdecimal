@@ -79,6 +79,14 @@ defmodule FastDecimal.Parser do
 
   # --- Exponent (signed decimal int after 'e' or 'E') ----------------------
 
+  # SECURITY: reject scientific-notation inputs with extreme exponents.
+  # Catches CVE-2026-32686-class DoS attempts at the parser boundary so
+  # malicious values like "1e1000000000" from untrusted input never make
+  # it into a `%FastDecimal{}`. 65,535 is well above any practical use
+  # (IEEE 754 decimal128's emax is 6,144) but small enough that arithmetic
+  # on the resulting value stays in the fast path.
+  @max_parse_exponent 65_535
+
   defp parse_exp(<<"-", rest::binary>>, mantissa, base_exp),
     do: parse_exp_digits(rest, mantissa, base_exp, -1, 0, false)
 
@@ -88,13 +96,24 @@ defmodule FastDecimal.Parser do
   defp parse_exp(bin, mantissa, base_exp),
     do: parse_exp_digits(bin, mantissa, base_exp, 1, 0, false)
 
+  # Early-exit the accumulator if it crosses the limit. Stops a multi-million
+  # digit acc loop before it can cause its own (smaller) DoS just parsing.
+  defp parse_exp_digits(_, _, _, _, acc, _) when acc > @max_parse_exponent, do: :error
+
   defp parse_exp_digits(<<d, rest::binary>>, mantissa, base_exp, sign, acc, _seen?)
        when d >= ?0 and d <= ?9 do
     parse_exp_digits(rest, mantissa, base_exp, sign, acc * 10 + (d - ?0), true)
   end
 
-  defp parse_exp_digits(<<>>, mantissa, base_exp, sign, acc, true),
-    do: {:ok, {mantissa, base_exp + sign * acc}}
+  defp parse_exp_digits(<<>>, mantissa, base_exp, sign, acc, true) do
+    final_exp = base_exp + sign * acc
+
+    if final_exp > @max_parse_exponent or final_exp < -@max_parse_exponent do
+      :error
+    else
+      {:ok, {mantissa, final_exp}}
+    end
+  end
 
   defp parse_exp_digits(_, _mantissa, _base_exp, _sign, _acc, _seen?), do: :error
 

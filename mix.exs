@@ -82,7 +82,7 @@ defmodule FastDecimal.MixProject do
         "MIGRATION.md": [filename: "migration", title: "Migrating from decimal"],
         "CHANGELOG.md": [filename: "changelog", title: "Changelog"],
         "bench/README.md": [filename: "benchmarks", title: "Benchmark suite"],
-        "LICENSE": [filename: "license", title: "License"]
+        LICENSE: [filename: "license", title: "License"]
       ],
       source_ref: "v#{@version}",
       source_url: @source_url,

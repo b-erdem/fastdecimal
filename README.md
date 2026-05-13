@@ -149,7 +149,17 @@ The suite is the regression gate for future optimization work and the correctnes
 
 Run with `mix test`. Full suite finishes in under a second.
 
-**Total: 325 tests/properties/doctests** — stable across 5+ consecutive runs.
+**Total: 344 tests/properties/doctests** — stable across consecutive runs. Includes 19 dedicated security regression tests covering [CVE-2026-32686](#security)-class exponent-amplification DoS protection.
+
+## Security
+
+FastDecimal is **not vulnerable to CVE-2026-32686** (exponent-amplification DoS that affected `ericmj/decimal` < 2.4.0). Three layers of defense:
+
+1. **Parser** rejects scientific-notation inputs with explicit exponent magnitude > 65,535. `FastDecimal.parse("1e1000000000")` returns `:error` rather than producing a value whose materialization would OOM the BEAM.
+2. **`pow10/1` internal cap** raises on `n > 100,000`. Catches operations that would materialize huge values even when the value was constructed directly via `new(coef, exp)` bypassing the parser.
+3. **`to_string(_, :normal)`** refuses to produce output larger than 1 MB. The `:scientific` and `:raw` formats remain available for legitimate large-exponent values (they don't materialize the zeros).
+
+These bounds are well above any practical use case (IEEE 754 decimal128 itself tops out at exp ±6,144) but kill the runaway path. Regression tests live at [test/fastdecimal/security_test.exs](test/fastdecimal/security_test.exs).
 
 ### Where the two libraries legitimately diverge
 
