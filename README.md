@@ -70,15 +70,16 @@ Format: median (p25–p75 IQR). Speedup column: `median (pessimistic – optimis
 | abs | medium | 162 ns (159–164) | **15 ns** (14–15) | **11× (11–12)** |
 | round (3dp) | medium | 433 ns (427–435) | **33 ns** (32–35) | **13× (12–14)** |
 | normalize | medium | 180 ns (176–181) | **18 ns** (18–18) | **10× (10–10)** |
-| parse | small | 179 ns (177–181) | **52 ns** (51–57) | **3.4× (3.1–3.5)** |
-| parse | medium | 242 ns (235–246) | **65 ns** (64–66) | **3.7× (3.6–3.8)** |
+| parse | small | 170 ns (168–174) | **48 ns** (48–50) | **3.5× (3.4–3.6)** |
+| parse | medium | 236 ns (234–237) | **77 ns** (77–80) | **3.0× (2.9–3.1)** |
 | to_string | medium | 137 ns (137–138) | 135 ns (134–136) | **1.0× — parity** |
 | to_string sci | medium | 137 ns (136–138) | 181 ns (180–182) | **0.76× — regression** |
 | to_integer | medium | 16 ns (16–17) | **11 ns** (10–11) | **1.5× (1.5–1.6)** |
 | sum of 100 | — | 23.4 µs (22.7–24.3) | **785 ns** (775–804) | **30× (28–31)** |
 
-**At-parity ops** (called out honestly):
-  - `to_string :normal`, `to_string :scientific`, `to_integer`: 1.0× – 1.2× faster but not stable at the pessimistic IQR edge ≥2× — marked marginal in the bench output. `decimal`'s formatters are exceptionally tight; we win, just less decisively.
+**Regressions** (called out honestly):
+  - `to_string :scientific`: 0.76× — `decimal`'s formatter is exceptionally tight; matching it is on the v1.1 todo list.
+  - `div_rem`, `parse medium`, `to_string :normal`, `to_integer`: 1.0× – 3.0× faster but not stable at the pessimistic IQR edge ≥2× — marked marginal in the bench output. Still wins, just less decisively.
 
 ### Realistic workloads (`mix run bench/realistic.exs`)
 
